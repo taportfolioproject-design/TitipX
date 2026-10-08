@@ -46,6 +46,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [formForeignPrice, setFormForeignPrice] = useState(2500);
   const [formMarginPercent, setFormMarginPercent] = useState(20);
   const [formCustomsBuffer, setFormCustomsBuffer] = useState(15000);
+  const [formPriceIdr, setFormPriceIdr] = useState<number>(285000);
   const [formWeightKg, setFormWeightKg] = useState(0.4);
   const [formSlotsTotal, setFormSlotsTotal] = useState(20);
   const [formSlotsBooked, setFormSlotsBooked] = useState(0);
@@ -71,6 +72,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormForeignPrice(2500);
     setFormMarginPercent(20);
     setFormCustomsBuffer(15000);
+    setFormPriceIdr(285000);
     setFormWeightKg(0.4);
     setFormSlotsTotal(20);
     setFormSlotsBooked(0);
@@ -92,6 +94,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormForeignPrice(2500);
     setFormMarginPercent(item.marginPercent);
     setFormCustomsBuffer(15000);
+    setFormPriceIdr(item.priceIdr);
     setFormWeightKg(item.weightKg);
     setFormSlotsTotal(item.slotsTotal);
     setFormSlotsBooked(item.slotsBooked);
@@ -113,7 +116,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       countryCode: formCountryCode,
       shopperName: formShopperName,
       shopperFlight: formShopperFlight,
-      priceIdr: calculatedTotalIdr || 100000,
+      priceIdr: formPriceIdr || calculatedTotalIdr || 100000,
       originalPriceForeign: `${formForeignPrice}`,
       marginPercent: formMarginPercent,
       weightKg: formWeightKg,
@@ -827,11 +830,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center justify-between pt-1 border-t border-blue-200">
-                  <span className="font-medium text-slate-700">Hasil Harga Jual Rekomendasi:</span>
-                  <span className="font-bold text-blue-700 font-mono text-base">
-                    Rp {calculatedTotalIdr.toLocaleString('id-ID')}
-                  </span>
+                  <span className="font-medium text-slate-700">Hasil Hitung Kurs & Margin:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-blue-700 font-mono text-sm">
+                      Rp {calculatedTotalIdr.toLocaleString('id-ID')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFormPriceIdr(calculatedTotalIdr)}
+                      className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      Gunakan Hasil Ini
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              {/* Harga Jual Bersih (IDR) */}
+              <div>
+                <label className="block font-semibold mb-1">
+                  Harga Jual Bersih di Web (IDR) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                    Rp
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    value={formPriceIdr}
+                    onChange={(e) => setFormPriceIdr(parseInt(e.target.value, 10) || 0)}
+                    placeholder="285000"
+                    className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold text-sm text-blue-700"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Format angka murni tanpa titik/koma (contoh: 285000). Tampil di web: Rp {formPriceIdr.toLocaleString('id-ID')}
+                </p>
               </div>
 
               {/* Drive Image Asset Input & Realtime Preview */}

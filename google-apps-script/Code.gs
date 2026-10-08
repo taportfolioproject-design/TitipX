@@ -1,31 +1,34 @@
 /**
  * =========================================================================
  * BACKEND GOOGLE APPS SCRIPT (Code.gs) UNTUK WEB JASTIP TITIPX / JASTIPGO
- * =========================================================================
- * 
- * Petunjuk Instalasi:
- * 1. Buka Google Spreadsheet baru di https://sheets.google.com
- * 2. Masuk ke menu "Ekstensi" (Extensions) > "Apps Script"
- * 3. Hapus kode default, lalu tempelkan (paste) seluruh kode di bawah ini.
- * 4. Klik tombol "Simpan" (Ctrl+S atau ikon Disket).
- * 5. Jalankan fungsi `setupInitialDatabase()` satu kali untuk membuat struktur sheet
- *    "menu", "nama_pengguna", dan "pesanan" beserta data sampelnya.
- * 6. Klik tombol "Terapkan" (Deploy) > "Penerapan Baru" (New deployment)
- * 7. Pilih tipe: "Aplikasi Web" (Web app)
- * 8. Pada konfigurasi:
- *    - Deskripsi: "API TitipX Jastip Production"
- *    - Jalankan sebagai (Execute as): "Saya" (Me)
- *    - Yang memiliki akses (Who has access): "Siapa saja" (Anyone) -> PENTING!
- * 9. Klik "Terapkan" (Deploy) lalu salin "URL Aplikasi Web" (Web App URL)
- *    yang berakhiran `/exec`.
- * 10. Masukkan URL tersebut ke file `branding.json` atau form pengaturan di web!
+ * VERSI: 2.0 (Fixed: Header Synchronization & Robust Price Formatting)
  * =========================================================================
  */
 
-// Konstanta Nama Sheet
 var SHEET_MENU = "menu";
 var SHEET_USERS = "nama_pengguna";
 var SHEET_ORDERS = "pesanan";
+
+// Header Standar Sheet Menu
+var HEADERS_MENU = [
+  "ID", "Nama Produk", "SKU", "Kategori", "Negara Asal", "Kota Asal", "Kode Negara",
+  "Nama Traveler", "Penerbangan", "Harga IDR", "Harga Asing", "Margin (%)",
+  "Bobot (Kg)", "Total Kuota", "Kuota Terisi", "Status", "URL / ID Google Drive Gambar",
+  "Rating", "Jumlah Review", "Deskripsi"
+];
+
+// Header Standar Sheet Pesanan
+var HEADERS_ORDERS = [
+  "Order ID", "Tanggal", "Nama Pelanggan", "Nomor WhatsApp", "Alamat Lengkap",
+  "Daftar Item", "Subtotal", "Biaya Hand-carry", "Buffer Bea Cukai", "Biaya Kurir",
+  "Diskon", "Total Pembayaran", "Metode Pembayaran", "Status", "Traveler", "Kode Penerbangan"
+];
+
+// Header Standar Sheet Pengguna
+var HEADERS_USERS = [
+  "ID Pengguna", "Nama Pengguna", "Nomor WhatsApp", "Alamat Utama",
+  "Total Pesanan", "Total Belanja (LTV)", "Skor Kepercayaan", "Status Tier", "Terakhir Belanja"
+];
 
 /**
  * Handle GET Requests - Mengambil data menu, pengguna, atau pesanan
@@ -47,7 +50,6 @@ function doGet(e) {
     } else if (action === "getOrders") {
       result.data = getSheetData(ss, SHEET_ORDERS);
     } else {
-      // Default: ambil semua untuk sinkronisasi awal
       result.data = {
         menu: getSheetData(ss, SHEET_MENU),
         users: getSheetData(ss, SHEET_USERS),
@@ -65,7 +67,7 @@ function doGet(e) {
 }
 
 /**
- * Handle POST Requests - Menerima transaksi pesanan, tambah menu, atau update data
+ * Handle POST Requests - Menerima transaksi pesanan, tambah menu, atau update status
  */
 function doPost(e) {
   try {
@@ -109,17 +111,12 @@ function doPost(e) {
 function handleCreateOrder(ss, order) {
   if (!order) throw new Error("Data pesanan tidak boleh kosong");
 
-  var orderSheet = getOrCreateSheet(ss, SHEET_ORDERS, [
-    "Order ID", "Tanggal", "Nama Pelanggan", "Nomor WhatsApp", "Alamat Lengkap",
-    "Daftar Item", "Subtotal", "Biaya Hand-carry", "Buffer Bea Cukai", "Biaya Kurir",
-    "Diskon", "Total Pembayaran", "Metode Pembayaran", "Status", "Traveler", "Kode Penerbangan"
-  ]);
-
+  var orderSheet = getOrCreateSheet(ss, SHEET_ORDERS, HEADERS_ORDERS);
   var orderId = order.orderNumber || ("#JT-" + Math.floor(1000 + Math.random() * 9000));
   var dateStr = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
   var itemsSummary = "";
-  if (Array.isArray(order.itemsDetail)) {
+  if (Array.isArray(order.itemsDetail) && order.itemsDetail.length > 0) {
     itemsSummary = order.itemsDetail.map(function(item) {
       return item.quantity + "x " + item.name;
     }).join(", ");
@@ -127,38 +124,45 @@ function handleCreateOrder(ss, order) {
     itemsSummary = order.itemsSummary || "";
   }
 
-  // Tambahkan baris transaksi ke sheet pesanan
+  // Bersihkan harga jadi angka murni
+  var subtotal = cleanNumber(order.subtotal);
+  var travelerFee = cleanNumber(order.travelerFee);
+  var customsBuffer = cleanNumber(order.customsBuffer);
+  var courierFee = cleanNumber(order.courierFee);
+  var discount = cleanNumber(order.discount);
+  var grandTotal = cleanNumber(order.grandTotal);
+
   orderSheet.appendRow([
     orderId,
     dateStr,
-    order.customerName || "-",
+    order.customerName || "Pelanggan",
     order.customerPhone || "-",
     order.customerAddress || "-",
     itemsSummary,
-    order.subtotal || 0,
-    order.travelerFee || 0,
-    order.customsBuffer || 0,
-    order.courierFee || 0,
-    order.discount || 0,
-    order.grandTotal || 0,
-    order.paymentMethod || "QRIS",
+    subtotal,
+    travelerFee,
+    customsBuffer,
+    courierFee,
+    discount,
+    grandTotal,
+    order.paymentMethod || "QRIS Instant",
     order.status || "Pending Purchase",
     order.assignedTraveler || "Mei Ling",
     order.flightCode || "NH855"
   ]);
 
-  // Sinkronisasi/Update data pengguna ke sheet "nama_pengguna"
+  // Sinkronisasi data ke sheet "nama_pengguna"
   upsertCustomer(ss, {
     name: order.customerName,
     phone: order.customerPhone,
     address: order.customerAddress,
-    orderTotal: order.grandTotal || 0
+    orderTotal: grandTotal
   });
 
   return {
     orderId: orderId,
     createdAt: dateStr,
-    grandTotal: order.grandTotal
+    grandTotal: grandTotal
   };
 }
 
@@ -168,31 +172,28 @@ function handleCreateOrder(ss, order) {
 function upsertCustomer(ss, cust) {
   if (!cust.phone) return;
 
-  var userSheet = getOrCreateSheet(ss, SHEET_USERS, [
-    "ID Pengguna", "Nama Pengguna", "Nomor WhatsApp", "Alamat Utama",
-    "Total Pesanan", "Total Belanja (LTV)", "Skor Kepercayaan", "Status Tier", "Terakhir Belanja"
-  ]);
-
+  var userSheet = getOrCreateSheet(ss, SHEET_USERS, HEADERS_USERS);
   var data = userSheet.getDataRange().getValues();
   var foundRow = -1;
 
+  var cleanPhone = String(cust.phone).replace(/[^0-9]/g, "");
+
   for (var i = 1; i < data.length; i++) {
-    // Cocokkan berdasarkan nomor telepon WhatsApp
-    if (String(data[i][2]).replace(/[^0-9]/g, "") === String(cust.phone).replace(/[^0-9]/g, "")) {
+    if (String(data[i][2]).replace(/[^0-9]/g, "") === cleanPhone) {
       foundRow = i + 1;
       break;
     }
   }
 
   var nowStr = new Date().toLocaleDateString("id-ID");
+  var orderTotalNum = cleanNumber(cust.orderTotal);
 
   if (foundRow > -1) {
-    // Update data pengguna yang sudah ada
-    var currentOrders = Number(userSheet.getRange(foundRow, 5).getValue()) || 0;
-    var currentSpent = Number(userSheet.getRange(foundRow, 6).getValue()) || 0;
+    var curOrders = Number(userSheet.getRange(foundRow, 5).getValue()) || 0;
+    var curSpent = Number(userSheet.getRange(foundRow, 6).getValue()) || 0;
 
-    var newOrders = currentOrders + 1;
-    var newSpent = currentSpent + Number(cust.orderTotal || 0);
+    var newOrders = curOrders + 1;
+    var newSpent = curSpent + orderTotalNum;
 
     var tier = "Member";
     if (newSpent >= 25000000) tier = "Diamond VIP";
@@ -206,7 +207,6 @@ function upsertCustomer(ss, cust) {
     userSheet.getRange(foundRow, 8).setValue(tier);
     userSheet.getRange(foundRow, 9).setValue(nowStr);
   } else {
-    // Tambah pengguna baru
     var newId = "CUST-ID-" + Math.floor(10000 + Math.random() * 90000);
     userSheet.appendRow([
       newId,
@@ -214,7 +214,7 @@ function upsertCustomer(ss, cust) {
       cust.phone,
       cust.address || "-",
       1,
-      cust.orderTotal || 0,
+      orderTotalNum,
       "98.0%",
       "Member",
       nowStr
@@ -226,17 +226,13 @@ function upsertCustomer(ss, cust) {
  * Tambah item menu baru ke sheet "menu"
  */
 function handleAddMenuItem(ss, item) {
-  var menuSheet = getOrCreateSheet(ss, SHEET_MENU, [
-    "ID", "Nama Produk", "SKU", "Kategori", "Negara Asal", "Kota Asal", "Kode Negara",
-    "Nama Traveler", "Penerbangan", "Harga IDR", "Harga Asing", "Margin (%)",
-    "Bobot (Kg)", "Total Kuota", "Kuota Terisi", "Status", "URL / ID Google Drive Gambar",
-    "Rating", "Jumlah Review", "Deskripsi"
-  ]);
+  var menuSheet = getOrCreateSheet(ss, SHEET_MENU, HEADERS_MENU);
+  var id = item.id || ("item-" + new Date().getTime());
+  var priceIdr = cleanNumber(item.priceIdr);
 
-  var id = item.id || ("ITEM-" + new Date().getTime());
   menuSheet.appendRow([
     id,
-    item.name,
+    item.name || "Item Jastip",
     item.sku || ("SKU-" + Math.floor(100 + Math.random() * 900)),
     item.category || "snacks",
     item.originCountry || "Jepang",
@@ -244,40 +240,51 @@ function handleAddMenuItem(ss, item) {
     item.countryCode || "japan",
     item.shopperName || "Reza Pratama",
     item.shopperFlight || "NH855",
-    item.priceIdr || 0,
+    priceIdr,
     item.originalPriceForeign || "¥ 1,500",
-    item.marginPercent || 20,
-    item.weightKg || 0.4,
-    item.slotsTotal || 20,
-    item.slotsBooked || 0,
+    Number(item.marginPercent) || 20,
+    Number(item.weightKg) || 0.4,
+    Number(item.slotsTotal) || 20,
+    Number(item.slotsBooked) || 0,
     item.status || "Available",
     item.imageUrl || "",
-    item.rating || 5.0,
-    item.reviewsCount || 1,
+    Number(item.rating) || 5.0,
+    Number(item.reviewsCount) || 1,
     item.description || ""
   ]);
 
-  return { id: id, name: item.name };
+  return { id: id, name: item.name, priceIdr: priceIdr };
 }
 
 /**
- * Update item menu di sheet "menu"
+ * Update item menu di sheet "menu" secara dinamis berdasarkan header
  */
 function handleUpdateMenuItem(ss, item) {
   var menuSheet = ss.getSheetByName(SHEET_MENU);
   if (!menuSheet) throw new Error("Sheet menu tidak ditemukan");
 
   var data = menuSheet.getDataRange().getValues();
+  if (data.length <= 1) throw new Error("Sheet menu kosong");
+
+  var headers = data[0];
+  var colPrice = findColIndex(headers, ["Harga IDR", "priceIdr", "Harga", "price"]);
+  var colName = findColIndex(headers, ["Nama Produk", "name", "Nama"]);
+  var colWeight = findColIndex(headers, ["Bobot (Kg)", "weightKg", "Berat"]);
+  var colSlotsTotal = findColIndex(headers, ["Total Kuota", "slotsTotal"]);
+  var colSlotsBooked = findColIndex(headers, ["Kuota Terisi", "slotsBooked"]);
+  var colStatus = findColIndex(headers, ["Status", "status"]);
+  var colImage = findColIndex(headers, ["URL / ID Google Drive Gambar", "imageUrl", "Gambar"]);
+
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(item.id)) {
       var row = i + 1;
-      if (item.name) menuSheet.getRange(row, 2).setValue(item.name);
-      if (item.priceIdr) menuSheet.getRange(row, 10).setValue(item.priceIdr);
-      if (item.weightKg) menuSheet.getRange(row, 13).setValue(item.weightKg);
-      if (item.slotsTotal) menuSheet.getRange(row, 14).setValue(item.slotsTotal);
-      if (item.slotsBooked !== undefined) menuSheet.getRange(row, 15).setValue(item.slotsBooked);
-      if (item.status) menuSheet.getRange(row, 16).setValue(item.status);
-      if (item.imageUrl) menuSheet.getRange(row, 17).setValue(item.imageUrl);
+      if (item.name && colName > 0) menuSheet.getRange(row, colName).setValue(item.name);
+      if (item.priceIdr !== undefined && colPrice > 0) menuSheet.getRange(row, colPrice).setValue(cleanNumber(item.priceIdr));
+      if (item.weightKg !== undefined && colWeight > 0) menuSheet.getRange(row, colWeight).setValue(Number(item.weightKg));
+      if (item.slotsTotal !== undefined && colSlotsTotal > 0) menuSheet.getRange(row, colSlotsTotal).setValue(Number(item.slotsTotal));
+      if (item.slotsBooked !== undefined && colSlotsBooked > 0) menuSheet.getRange(row, colSlotsBooked).setValue(Number(item.slotsBooked));
+      if (item.status && colStatus > 0) menuSheet.getRange(row, colStatus).setValue(item.status);
+      if (item.imageUrl !== undefined && colImage > 0) menuSheet.getRange(row, colImage).setValue(item.imageUrl);
       return { id: item.id, updated: true };
     }
   }
@@ -309,9 +316,15 @@ function handleUpdateOrderStatus(ss, orderId, newStatus) {
   if (!sheet) throw new Error("Sheet pesanan tidak ditemukan");
 
   var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) throw new Error("Sheet pesanan kosong");
+
+  var headers = data[0];
+  var colStatus = findColIndex(headers, ["Status", "status", "Status Pesanan"]);
+  if (colStatus <= 0) colStatus = 14;
+
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(orderId)) {
-      sheet.getRange(i + 1, 14).setValue(newStatus);
+      sheet.getRange(i + 1, colStatus).setValue(newStatus);
       return { orderId: orderId, status: newStatus };
     }
   }
@@ -319,7 +332,7 @@ function handleUpdateOrderStatus(ss, orderId, newStatus) {
 }
 
 /**
- * Helper: Ambil data tabel sheet sebagai array of objects berdasarkan baris header
+ * Helper: Ambil data tabel sheet sebagai array of objects yang lengkap
  */
 function getSheetData(ss, sheetName) {
   var sheet = ss.getSheetByName(sheetName);
@@ -334,8 +347,28 @@ function getSheetData(ss, sheetName) {
   for (var i = 1; i < data.length; i++) {
     var rowObj = {};
     for (var j = 0; j < headers.length; j++) {
-      var key = toCamelCase(headers[j]);
-      rowObj[key] = data[i][j];
+      var val = data[i][j];
+      var rawHeader = String(headers[j]).trim();
+
+      // Simpan dengan key asli
+      rowObj[rawHeader] = val;
+
+      // Simpan dengan key lowercase tanpa spasi
+      var normKey = rawHeader.toLowerCase().replace(/[^a-z0-9]/g, "");
+      rowObj[normKey] = val;
+
+      // Alias cerdas untuk kolom umum
+      if (normKey === "hargaidr" || normKey === "harga") {
+        rowObj["priceIdr"] = cleanNumber(val);
+      } else if (normKey === "namaproduk" || normKey === "nama") {
+        rowObj["name"] = val;
+      } else if (normKey === "totalpembayaran" || normKey === "total") {
+        rowObj["grandTotal"] = cleanNumber(val);
+      } else if (normKey === "urlidgoogledrivegambar" || normKey === "gambar") {
+        rowObj["imageUrl"] = val;
+      } else if (normKey === "orderid" || normKey === "nopesanan") {
+        rowObj["orderNumber"] = val;
+      }
     }
     rows.push(rowObj);
   }
@@ -343,15 +376,48 @@ function getSheetData(ss, sheetName) {
 }
 
 /**
- * Helper: Normalisasi header kolom menjadi camelCase property key
+ * Helper: Cari index kolom berdasarkan daftar kemungkinan nama header (1-indexed)
  */
-function toCamelCase(str) {
-  return String(str)
-    .toLowerCase()
-    .replace(/[^a-zA-Z0-9]+(.)/g, function(match, chr) {
-      return chr.toUpperCase();
-    })
-    .replace(/[^a-zA-Z0-9]/g, "");
+function findColIndex(headers, possibleNames) {
+  var targets = possibleNames.map(function(s) {
+    return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  });
+
+  for (var j = 0; j < headers.length; j++) {
+    var normHeader = String(headers[j]).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (targets.indexOf(normHeader) > -1) {
+      return j + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Helper: Bersihkan string harga (Rp 285.000, 285.000, dll.) jadi integer murni
+ */
+function cleanNumber(val) {
+  if (val === null || val === undefined || val === "") return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : Math.round(val);
+
+  var s = String(val).trim().replace(/[^0-9.,]/g, "");
+  if (!s) return 0;
+
+  // Format ribuan titik e.g. "285.000" atau "1.485.000"
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    s = s.replace(/\./g, "").replace(",", ".");
+    var n = parseFloat(s);
+    return isNaN(n) ? 0 : Math.round(n);
+  }
+
+  // Format koma e.g. "285,000"
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) {
+    s = s.replace(/,/g, "");
+    var n = parseFloat(s);
+    return isNaN(n) ? 0 : Math.round(n);
+  }
+
+  var n = parseFloat(s.replace(",", "."));
+  return isNaN(n) ? 0 : Math.round(n);
 }
 
 /**
@@ -389,14 +455,7 @@ function setupInitialDatabase() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // 1. Buat Sheet Menu
-  var menuHeaders = [
-    "id", "name", "sku", "category", "originCountry", "originCity", "countryCode",
-    "shopperName", "shopperFlight", "priceIdr", "originalPriceForeign", "marginPercent",
-    "weightKg", "slotsTotal", "slotsBooked", "status", "imageUrl",
-    "rating", "reviewsCount", "description"
-  ];
-  var sheetMenu = getOrCreateSheet(ss, SHEET_MENU, menuHeaders);
-  
+  var sheetMenu = getOrCreateSheet(ss, SHEET_MENU, HEADERS_MENU);
   if (sheetMenu.getLastRow() <= 1) {
     sheetMenu.appendRow([
       "item-1", "Tokyo Banana x Pokémon Pikachu 8-Pack", "ISH-TYO-092", "snacks", "Jepang", "Tokyo", "japan",
@@ -425,10 +484,7 @@ function setupInitialDatabase() {
   }
 
   // 2. Buat Sheet Pengguna
-  var userHeaders = [
-    "id", "name", "phone", "address", "totalOrders", "lifetimeSpent", "trustScore", "tier", "lastOrderDate"
-  ];
-  var sheetUsers = getOrCreateSheet(ss, SHEET_USERS, userHeaders);
+  var sheetUsers = getOrCreateSheet(ss, SHEET_USERS, HEADERS_USERS);
   if (sheetUsers.getLastRow() <= 1) {
     sheetUsers.appendRow([
       "CUST-ID-88219", "Clarissa Angela", "+62 812-4491-0021", "Menteng Residences Blok C-12, Jakarta Pusat",
@@ -441,17 +497,12 @@ function setupInitialDatabase() {
   }
 
   // 3. Buat Sheet Pesanan
-  var orderHeaders = [
-    "orderNumber", "createdAt", "customerName", "customerPhone", "customerAddress",
-    "itemsSummary", "subtotal", "travelerFee", "customsBuffer", "courierFee",
-    "discount", "grandTotal", "paymentMethod", "status", "assignedTraveler", "flightCode"
-  ];
-  var sheetOrders = getOrCreateSheet(ss, SHEET_ORDERS, orderHeaders);
+  var sheetOrders = getOrCreateSheet(ss, SHEET_ORDERS, HEADERS_ORDERS);
   if (sheetOrders.getLastRow() <= 1) {
     sheetOrders.appendRow([
       "#JT-8821", "28/11/2024, 14:22:10", "Nadya Wulandari", "+62 812-9988-3412",
       "Senopati Suites Tower 2 Unit 18B, Jakarta Selatan", "2x Tokyo Banana x Pokémon, 1x Shiseido Fino",
-      1199660, 180000, 45000, 32000, 50000, 1485000, "QRIS", "Proof Uploaded", "Mei Ling", "NH855"
+      1199660, 180000, 45000, 32000, 50000, 1485000, "QRIS Instant", "Proof Uploaded", "Mei Ling", "NH855"
     ]);
     sheetOrders.appendRow([
       "#JT-8820", "28/11/2024, 11:05:40", "Dimas Anggara", "+62 812-3456-7880",
@@ -460,5 +511,5 @@ function setupInitialDatabase() {
     ]);
   }
 
-  Logger.log("Database TitipX berhasil diinisialisasi dengan 3 sheet!");
+  Logger.log("Database TitipX berhasil diinisialisasi dengan 3 sheet standar!");
 }

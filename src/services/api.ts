@@ -26,6 +26,86 @@ function setLocalCache<T>(key: string, data: T) {
   }
 }
 
+/**
+ * Robust Price & Numeric Parser:
+ * Handles:
+ * - 285000 (number)
+ * - "285000"
+ * - "Rp 285.000" (Indonesian thousand separator)
+ * - "285.000" -> 285000 (NOT 285!)
+ * - "1.485.000" -> 1485000
+ * - "285,000" (comma thousand separator)
+ * - "285.000,00" -> 285000
+ * - "Rp 3.850.000" -> 3850000
+ */
+export function parsePrice(val: unknown): number {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : Math.round(val);
+  const raw = String(val).trim();
+  if (!raw) return 0;
+
+  // Clean currency prefixes (Rp, IDR, $, etc.) and spaces
+  const clean = raw.replace(/[^0-9.,]/g, '');
+  if (!clean) return 0;
+
+  // Indonesian format with dots as thousand separators: e.g. "285.000" or "1.485.000"
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(clean)) {
+    const numStr = clean.replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(numStr);
+    return isNaN(n) ? 0 : Math.round(n);
+  }
+
+  // Western format with commas as thousand separators: e.g. "285,000" or "1,485,000"
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(clean)) {
+    const numStr = clean.replace(/,/g, '');
+    const n = parseFloat(numStr);
+    return isNaN(n) ? 0 : Math.round(n);
+  }
+
+  // Pure integer string with no dots/commas: e.g. "285000"
+  if (/^\d+$/.test(clean)) {
+    const n = parseInt(clean, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  // Single dot or comma: determine if it's decimal or 3-digit thousand
+  // e.g. "285.000" (dot followed by 3 digits)
+  if (/^\d+\.\d{3}$/.test(clean)) {
+    const n = parseInt(clean.replace('.', ''), 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  const n = parseFloat(clean.replace(',', '.'));
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+/**
+ * Case-insensitive & normalized field getter for Google Sheet rows
+ */
+export function getField(row: Record<string, unknown>, ...possibleKeys: string[]): unknown {
+  if (!row || typeof row !== 'object') return undefined;
+
+  // 1. Direct key match
+  for (const k of possibleKeys) {
+    if (row[k] !== undefined && row[k] !== null && row[k] !== '') {
+      return row[k];
+    }
+  }
+
+  // 2. Normalized lowercase alphanumeric match
+  const normalizedTargets = possibleKeys.map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const entries = Object.entries(row);
+  for (const [key, val] of entries) {
+    if (val === undefined || val === null || val === '') continue;
+    const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalizedTargets.includes(normKey)) {
+      return val;
+    }
+  }
+
+  return undefined;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -42,7 +122,12 @@ export async function fetchCatalog(): Promise<ApiResponse<MenuItem[]>> {
 
   if (!url) {
     const local = getLocalCache<MenuItem[]>(STORAGE_MENU, INITIAL_MENU);
-    return { success: true, data: local, source: 'local_fallback', message: 'Demo local database (URL Apps Script belum diisi)' };
+    return {
+      success: true,
+      data: local,
+      source: 'local_fallback',
+      message: 'Demo local database (URL Apps Script belum diisi)',
+    };
   }
 
   try {
@@ -56,35 +141,78 @@ export async function fetchCatalog(): Promise<ApiResponse<MenuItem[]>> {
     const json = await res.json();
 
     if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
-      const mapped: MenuItem[] = json.data.map((row: Record<string, unknown>, idx: number) => ({
-        id: String(row.id || `item-${idx + 1}`),
-        name: String(row.name || row.namaProduk || 'Item'),
-        sku: String(row.sku || `SKU-${idx + 1}`),
-        category: String(row.category || row.kategori || 'snacks'),
-        originCountry: String(row.originCountry || row.negaraAsal || 'Jepang'),
-        originCity: String(row.originCity || row.kotaAsal || 'Tokyo'),
-        countryCode: (row.countryCode || 'japan') as MenuItem['countryCode'],
-        shopperName: String(row.shopperName || row.namaTraveler || 'Reza Pratama'),
-        shopperFlight: String(row.shopperFlight || row.penerbangan || 'NH855'),
-        priceIdr: Number(row.priceIdr || row.hargaIdr || 0),
-        originalPriceForeign: String(row.originalPriceForeign || row.hargaAsing || '¥ 1,500'),
-        marginPercent: Number(row.marginPercent || row.margin || 20),
-        weightKg: Number(row.weightKg || row.bobotKg || 0.4),
-        slotsTotal: Number(row.slotsTotal || row.totalKuota || 20),
-        slotsBooked: Number(row.slotsBooked || row.kuotaTerisi || 0),
-        status: (row.status || 'Available') as MenuItem['status'],
-        imageUrl: String(row.imageUrl || row.urlIdGoogleDriveGambar || ''),
-        rating: Number(row.rating || 5.0),
-        reviewsCount: Number(row.reviewsCount || row.jumlahReview || 1),
-        description: String(row.description || row.deskripsi || ''),
-        storeReceiptRequired: Boolean(row.storeReceiptRequired ?? true),
-      }));
+      const mapped: MenuItem[] = json.data.map((row: Record<string, unknown>, idx: number) => {
+        const id = String(getField(row, 'id', 'ID', 'idItem') || `item-${idx + 1}`);
+        const name = String(getField(row, 'name', 'namaProduk', 'nama', 'item', 'produk') || 'Item Jastip');
+        const sku = String(getField(row, 'sku', 'SKU', 'kodeSku') || `SKU-${idx + 1}`);
+        const category = String(getField(row, 'category', 'kategori', 'cat') || 'snacks');
+        const originCountry = String(getField(row, 'originCountry', 'negaraAsal', 'negara') || 'Jepang');
+        const originCity = String(getField(row, 'originCity', 'kotaAsal', 'kota') || 'Tokyo');
+        
+        let countryCode: MenuItem['countryCode'] = 'japan';
+        const rawCode = String(getField(row, 'countryCode', 'kodeNegara', 'kode') || originCountry).toLowerCase();
+        if (rawCode.includes('kor') || rawCode.includes('sel')) countryCode = 'korea';
+        else if (rawCode.includes('us') || rawCode.includes('amer')) countryCode = 'usa';
+        else if (rawCode.includes('thai') || rawCode.includes('bkk')) countryCode = 'thailand';
+        else if (rawCode.includes('fran') || rawCode.includes('par') || rawCode.includes('cdg')) countryCode = 'france';
+        else countryCode = 'japan';
+
+        const shopperName = String(getField(row, 'shopperName', 'namaTraveler', 'traveler') || 'Reza Pratama');
+        const shopperFlight = String(getField(row, 'shopperFlight', 'penerbangan', 'flight') || 'NH855 (Arr 28 Nov)');
+        
+        const rawPrice = getField(row, 'priceIdr', 'hargaIdr', 'harga', 'price', 'hargaJual', 'price_idr');
+        const priceIdr = parsePrice(rawPrice) || 100000;
+
+        const originalPriceForeign = String(
+          getField(row, 'originalPriceForeign', 'hargaAsing', 'foreignPrice') || '¥ 1,500'
+        );
+        const marginPercent = parsePrice(getField(row, 'marginPercent', 'margin', 'marginPersen')) || 20;
+        const weightKg = parseFloat(String(getField(row, 'weightKg', 'bobotKg', 'berat', 'weight') || '0.4')) || 0.4;
+        const slotsTotal = parseInt(String(getField(row, 'slotsTotal', 'totalKuota', 'slots') || '20'), 10) || 20;
+        const slotsBooked = parseInt(String(getField(row, 'slotsBooked', 'kuotaTerisi', 'booked') || '0'), 10) || 0;
+        
+        let status: MenuItem['status'] = 'Available';
+        const rawStatus = String(getField(row, 'status', 'Status') || 'Available').trim();
+        if (rawStatus.toLowerCase().includes('limit')) status = 'Limited Space';
+        else if (rawStatus.toLowerCase().includes('flight') || rawStatus.toLowerCase().includes('transit')) status = 'In-Flight';
+        else if (rawStatus.toLowerCase().includes('sold') || rawStatus.toLowerCase().includes('habis')) status = 'Sold Out';
+        else status = 'Available';
+
+        const imageUrl = String(getField(row, 'imageUrl', 'urlIdGoogleDriveGambar', 'gambar', 'image', 'foto') || '');
+        const rating = parseFloat(String(getField(row, 'rating', 'Rating') || '5.0')) || 5.0;
+        const reviewsCount = parseInt(String(getField(row, 'reviewsCount', 'jumlahReview', 'reviews') || '1'), 10) || 1;
+        const description = String(getField(row, 'description', 'deskripsi', 'desc') || '');
+
+        return {
+          id,
+          name,
+          sku,
+          category,
+          originCountry,
+          originCity,
+          countryCode,
+          shopperName,
+          shopperFlight,
+          priceIdr,
+          originalPriceForeign,
+          marginPercent,
+          weightKg,
+          slotsTotal,
+          slotsBooked,
+          status,
+          imageUrl,
+          rating,
+          reviewsCount,
+          description,
+          storeReceiptRequired: true,
+        };
+      });
 
       setLocalCache(STORAGE_MENU, mapped);
       return { success: true, data: mapped, source: 'google_sheets' };
     }
 
-    throw new Error('Format data tidak sesuai');
+    throw new Error('Data menu dari Google Sheets kosong atau format tidak sesuai');
   } catch (err) {
     console.warn('Gagal memuat dari Google Apps Script, menggunakan cache lokal:', err);
     const local = getLocalCache<MenuItem[]>(STORAGE_MENU, INITIAL_MENU);
@@ -116,26 +244,57 @@ export async function fetchOrders(): Promise<ApiResponse<OrderRecord[]>> {
     const json = await res.json();
 
     if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
-      const mapped: OrderRecord[] = json.data.map((row: Record<string, unknown>, idx: number) => ({
-        id: String(row.orderId || row.orderNumber || `ord-${idx + 1}`),
-        orderNumber: String(row.orderNumber || row.orderId || `#JT-${idx + 1}`),
-        customerName: String(row.customerName || row.namaPelanggan || 'Pelanggan'),
-        customerPhone: String(row.customerPhone || row.nomorWhatsapp || '-'),
-        customerAddress: String(row.customerAddress || row.alamatLengkap || '-'),
-        itemsSummary: String(row.itemsSummary || row.daftarItem || '-'),
-        itemsDetail: [],
-        subtotal: Number(row.subtotal || 0),
-        travelerFee: Number(row.travelerFee || row.biayaHandCarry || 0),
-        customsBuffer: Number(row.customsBuffer || row.bufferBeaCukai || 0),
-        courierFee: Number(row.courierFee || row.biayaKurir || 0),
-        discount: Number(row.discount || row.diskon || 0),
-        grandTotal: Number(row.grandTotal || row.totalPembayaran || 0),
-        paymentMethod: String(row.paymentMethod || row.metodePembayaran || 'QRIS'),
-        status: (row.status || 'Pending Purchase') as OrderRecord['status'],
-        assignedTraveler: String(row.assignedTraveler || row.traveler || 'Mei Ling'),
-        flightCode: String(row.flightCode || row.kodePenerbangan || 'NH855'),
-        createdAt: String(row.createdAt || row.tanggal || new Date().toLocaleDateString('id-ID')),
-      }));
+      const mapped: OrderRecord[] = json.data.map((row: Record<string, unknown>, idx: number) => {
+        const id = String(getField(row, 'orderId', 'orderNumber', 'id', 'noPesanan') || `ord-${idx + 1}`);
+        const orderNumber = String(getField(row, 'orderNumber', 'orderId', 'noPesanan') || `#JT-${idx + 1}`);
+        const customerName = String(getField(row, 'customerName', 'namaPelanggan', 'nama') || 'Pelanggan');
+        const customerPhone = String(getField(row, 'customerPhone', 'nomorWhatsapp', 'telepon', 'wa') || '-');
+        const customerAddress = String(getField(row, 'customerAddress', 'alamatLengkap', 'alamat') || '-');
+        const itemsSummary = String(getField(row, 'itemsSummary', 'daftarItem', 'barang') || '-');
+
+        const subtotal = parsePrice(getField(row, 'subtotal', 'Subtotal')) || 0;
+        const travelerFee = parsePrice(getField(row, 'travelerFee', 'biayaHandCarry', 'feeJastip')) || 0;
+        const customsBuffer = parsePrice(getField(row, 'customsBuffer', 'bufferBeaCukai', 'cukai')) || 0;
+        const courierFee = parsePrice(getField(row, 'courierFee', 'biayaKurir', 'ongkir')) || 0;
+        const discount = parsePrice(getField(row, 'discount', 'diskon', 'promo')) || 0;
+        const grandTotal = parsePrice(getField(row, 'grandTotal', 'totalPembayaran', 'total', 'jumlah')) || 0;
+
+        const paymentMethod = String(getField(row, 'paymentMethod', 'metodePembayaran', 'metode') || 'QRIS Instant');
+        
+        let status: OrderRecord['status'] = 'Pending Purchase';
+        const rawStatus = String(getField(row, 'status', 'Status') || 'Pending Purchase').trim();
+        if (rawStatus.toLowerCase().includes('proof')) status = 'Proof Uploaded';
+        else if (rawStatus.toLowerCase().includes('transit') || rawStatus.toLowerCase().includes('flight')) status = 'In-Transit';
+        else if (rawStatus.toLowerCase().includes('customs') || rawStatus.toLowerCase().includes('cukai')) status = 'Customs Cleared';
+        else if (rawStatus.toLowerCase().includes('courier') || rawStatus.toLowerCase().includes('kurir')) status = 'Courier Dispatched';
+        else if (rawStatus.toLowerCase().includes('deliver') || rawStatus.toLowerCase().includes('selesai')) status = 'Delivered';
+        else status = 'Pending Purchase';
+
+        const assignedTraveler = String(getField(row, 'assignedTraveler', 'traveler') || 'Mei Ling');
+        const flightCode = String(getField(row, 'flightCode', 'kodePenerbangan', 'penerbangan') || 'NH855');
+        const createdAt = String(getField(row, 'createdAt', 'tanggal', 'date') || new Date().toLocaleDateString('id-ID'));
+
+        return {
+          id,
+          orderNumber,
+          customerName,
+          customerPhone,
+          customerAddress,
+          itemsSummary,
+          itemsDetail: [],
+          subtotal,
+          travelerFee,
+          customsBuffer,
+          courierFee,
+          discount,
+          grandTotal,
+          paymentMethod,
+          status,
+          assignedTraveler,
+          flightCode,
+          createdAt,
+        };
+      });
 
       setLocalCache(STORAGE_ORDERS, mapped);
       return { success: true, data: mapped, source: 'google_sheets' };
@@ -166,16 +325,33 @@ export async function fetchCustomers(): Promise<ApiResponse<CustomerRecord[]>> {
     const json = await res.json();
 
     if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
-      const mapped: CustomerRecord[] = json.data.map((row: Record<string, unknown>, idx: number) => ({
-        id: String(row.id || row.idPengguna || `CUST-${idx + 1}`),
-        name: String(row.name || row.namaPengguna || 'Pelanggan'),
-        phone: String(row.phone || row.nomorWhatsapp || '-'),
-        address: String(row.address || row.alamatUtama || '-'),
-        totalOrders: Number(row.totalOrders || row.totalPesanan || 1),
-        lifetimeSpent: Number(row.lifetimeSpent || row.totalBelanjaLtv || 0),
-        trustScore: parseFloat(String(row.trustScore || row.skorKepercayaan || '98')) || 98.0,
-        tier: (row.tier || row.statusTier || 'Member') as CustomerRecord['tier'],
-      }));
+      const mapped: CustomerRecord[] = json.data.map((row: Record<string, unknown>, idx: number) => {
+        const id = String(getField(row, 'id', 'idPengguna', 'ID') || `CUST-${idx + 1}`);
+        const name = String(getField(row, 'name', 'namaPengguna', 'nama') || 'Pelanggan');
+        const phone = String(getField(row, 'phone', 'nomorWhatsapp', 'wa') || '-');
+        const address = String(getField(row, 'address', 'alamatUtama', 'alamat') || '-');
+        const totalOrders = parseInt(String(getField(row, 'totalOrders', 'totalPesanan') || '1'), 10) || 1;
+        const lifetimeSpent = parsePrice(getField(row, 'lifetimeSpent', 'totalBelanjaLtv', 'totalBelanja')) || 0;
+        const trustScore = parseFloat(String(getField(row, 'trustScore', 'skorKepercayaan') || '98').replace('%', '')) || 98.0;
+        
+        let tier: CustomerRecord['tier'] = 'Member';
+        const rawTier = String(getField(row, 'tier', 'statusTier', 'tier') || 'Member');
+        if (rawTier.includes('Diamond')) tier = 'Diamond VIP';
+        else if (rawTier.includes('Gold')) tier = 'Gold';
+        else if (rawTier.includes('Silver')) tier = 'Silver';
+        else tier = 'Member';
+
+        return {
+          id,
+          name,
+          phone,
+          address,
+          totalOrders,
+          lifetimeSpent,
+          trustScore,
+          tier,
+        };
+      });
 
       setLocalCache(STORAGE_CUSTOMERS, mapped);
       return { success: true, data: mapped, source: 'google_sheets' };
@@ -190,7 +366,9 @@ export async function fetchCustomers(): Promise<ApiResponse<CustomerRecord[]>> {
 /**
  * Kirim Pesanan Baru (doPost action: 'createOrder')
  */
-export async function submitOrder(order: Partial<OrderRecord>): Promise<{ success: boolean; orderId: string; message: string }> {
+export async function submitOrder(
+  order: Partial<OrderRecord>
+): Promise<{ success: boolean; orderId: string; message: string }> {
   const branding = getBranding();
   const url = branding.appsScriptUrl?.trim();
   const generatedId = '#JT-' + Math.floor(1000 + Math.random() * 9000);
@@ -203,12 +381,12 @@ export async function submitOrder(order: Partial<OrderRecord>): Promise<{ succes
     customerAddress: order.customerAddress || '-',
     itemsSummary: order.itemsSummary || '',
     itemsDetail: order.itemsDetail || [],
-    subtotal: order.subtotal || 0,
-    travelerFee: order.travelerFee || 0,
-    customsBuffer: order.customsBuffer || 0,
-    courierFee: order.courierFee || 0,
-    discount: order.discount || 0,
-    grandTotal: order.grandTotal || 0,
+    subtotal: parsePrice(order.subtotal) || 0,
+    travelerFee: parsePrice(order.travelerFee) || 0,
+    customsBuffer: parsePrice(order.customsBuffer) || 0,
+    courierFee: parsePrice(order.courierFee) || 0,
+    discount: parsePrice(order.discount) || 0,
+    grandTotal: parsePrice(order.grandTotal) || 0,
     paymentMethod: order.paymentMethod || 'QRIS Instant',
     status: 'Pending Purchase',
     assignedTraveler: order.assignedTraveler || 'Mei Ling (Traveler)',
@@ -216,7 +394,6 @@ export async function submitOrder(order: Partial<OrderRecord>): Promise<{ succes
     createdAt: new Date().toLocaleString('id-ID'),
   };
 
-  // Always update local cache for instant UI feedback
   const existingOrders = getLocalCache<OrderRecord[]>(STORAGE_ORDERS, INITIAL_ORDERS);
   setLocalCache(STORAGE_ORDERS, [fullOrder, ...existingOrders]);
 
@@ -229,12 +406,11 @@ export async function submitOrder(order: Partial<OrderRecord>): Promise<{ succes
   }
 
   try {
-    // Send to Google Apps Script doPost
     const res = await fetch(url, {
       method: 'POST',
       redirect: 'follow',
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8', // text/plain prevents CORS preflight block on GAS Web App
+        'Content-Type': 'text/plain;charset=utf-8',
       },
       body: JSON.stringify({
         action: 'createOrder',
@@ -262,12 +438,17 @@ export async function submitOrder(order: Partial<OrderRecord>): Promise<{ succes
  * Tambah / Update Item Menu
  */
 export async function saveMenuItem(item: MenuItem, isNew = false): Promise<boolean> {
+  const itemToSave = {
+    ...item,
+    priceIdr: parsePrice(item.priceIdr),
+  };
+
   const existing = getLocalCache<MenuItem[]>(STORAGE_MENU, INITIAL_MENU);
   let updatedList: MenuItem[];
   if (isNew) {
-    updatedList = [item, ...existing];
+    updatedList = [itemToSave, ...existing];
   } else {
-    updatedList = existing.map(it => (it.id === item.id ? item : it));
+    updatedList = existing.map((it) => (it.id === itemToSave.id ? itemToSave : it));
   }
   setLocalCache(STORAGE_MENU, updatedList);
 
@@ -280,7 +461,7 @@ export async function saveMenuItem(item: MenuItem, isNew = false): Promise<boole
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: isNew ? 'addMenuItem' : 'updateMenuItem',
-          data: item,
+          data: itemToSave,
         }),
       });
     } catch (e) {
@@ -295,7 +476,7 @@ export async function saveMenuItem(item: MenuItem, isNew = false): Promise<boole
  */
 export async function deleteMenuItem(id: string): Promise<boolean> {
   const existing = getLocalCache<MenuItem[]>(STORAGE_MENU, INITIAL_MENU);
-  const updatedList = existing.filter(it => it.id !== id);
+  const updatedList = existing.filter((it) => it.id !== id);
   setLocalCache(STORAGE_MENU, updatedList);
 
   const branding = getBranding();
@@ -317,9 +498,14 @@ export async function deleteMenuItem(id: string): Promise<boolean> {
 /**
  * Update Status Pesanan
  */
-export async function updateOrderStatus(orderId: string, newStatus: OrderRecord['status']): Promise<boolean> {
+export async function updateOrderStatus(
+  orderId: string,
+  newStatus: OrderRecord['status']
+): Promise<boolean> {
   const existing = getLocalCache<OrderRecord[]>(STORAGE_ORDERS, INITIAL_ORDERS);
-  const updatedList = existing.map(o => (o.orderNumber === orderId || o.id === orderId ? { ...o, status: newStatus } : o));
+  const updatedList = existing.map((o) =>
+    o.orderNumber === orderId || o.id === orderId ? { ...o, status: newStatus } : o
+  );
   setLocalCache(STORAGE_ORDERS, updatedList);
 
   const branding = getBranding();
