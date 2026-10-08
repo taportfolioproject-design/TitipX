@@ -1,0 +1,49 @@
+{
+  "storeName": "TitipX Jastip Official",
+  "tagline": "Jasa Titip Terpercaya & Cepat dari Seluruh Dunia",
+  "logoUrl": "https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=120&q=80",
+  "colors": {
+    "primary": "#0F52FF",
+    "primaryHover": "#0A3EC4",
+    "secondary": "#0D9488",
+    "accent": "#D97706",
+    "background": "#FAF8FF",
+    "surface": "#FFFFFF",
+    "text": "#131B2E",
+    "mutedText": "#434656",
+    "border": "#E2E8F0"
+  },
+  "contact": {
+    "whatsappAdmin": "6281234567890",
+    "whatsappDisplay": "+62 812-3456-7890",
+    "instagram": "@titipx.official",
+    "email": "support@titipx.com"
+  },
+  "payment": {
+    "bankName": "BCA",
+    "accountNumber": "1234567890",
+    "accountHolder": "PT TITIP NUSANTARA SEJAHTERA",
+    "qrisImageUrl": "https://images.unsplash.com/photo-1595079676339-1534801ad6cf?auto=format&fit=crop&w=400&q=80",
+    "acceptedMethods": [
+      {
+        "id": "qris",
+        "name": "QRIS (Semua E-Wallet / M-Banking)",
+        "badge": "Instan",
+        "instructions": "Scan QRIS yang tampil setelah checkout dan unggah bukti transfer."
+      },
+      {
+        "id": "transfer",
+        "name": "Transfer Bank (BCA / Mandiri / BNI)",
+        "badge": "Verifikasi Manual",
+        "instructions": "Transfer nominal tepat hingga 3 digit terakhir ke rekening yang tertera."
+      },
+      {
+        "id": "cash",
+        "name": "Cash on Delivery / COD (Ambil di Hub TitipX)",
+        "badge": "Hub Pick-up",
+        "instructions": "Bayar langsung tunai saat pengambilan pesanan di titik temu / Hub."
+      }
+    ]
+  },
+  "appsScriptUrl": ""
+}

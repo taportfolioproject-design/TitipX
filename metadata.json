@@ -1,0 +1,8 @@
+{
+  "name": "TitipX - Jastip Commerce",
+  "description": "Platform web Jastip (Jasa Titip) modern dan dinamis terintegrasi Google Spreadsheet dan Google Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
