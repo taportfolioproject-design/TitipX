@@ -15,6 +15,7 @@ import { ProductQuickViewModal } from './components/ProductQuickViewModal';
 import { CustomRequestModal } from './components/CustomRequestModal';
 import { CartView } from './components/CartView';
 import { AdminDashboard } from './components/AdminDashboard';
+import { AdminLoginGate } from './components/AdminLoginGate';
 import { BrandingSettingsModal } from './components/BrandingSettingsModal';
 import { BackendGuideModal } from './components/BackendGuideModal';
 import { WishlistModal } from './components/WishlistModal';
@@ -23,6 +24,13 @@ export default function App() {
   const [branding, setBranding] = useState<BrandingConfig>(getBranding());
   const [activeView, setActiveView] = useState<'catalog' | 'cart' | 'admin'>('catalog');
   const [currency, setCurrency] = useState<'IDR' | 'USD'>('IDR');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('titipx_admin_auth') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // Database State
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -443,17 +451,43 @@ export default function App() {
           />
         )}
 
-        {/* View: Admin Ops Portal */}
+        {/* View: Admin Ops Portal (Protected with Password) */}
         {activeView === 'admin' && (
-          <AdminDashboard
-            menu={menuItems}
-            orders={orders}
-            customers={customers}
-            branding={branding}
-            onRefreshData={loadDatabase}
-            onOpenGuide={() => setIsGuideOpen(true)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-          />
+          !isAdminAuthenticated ? (
+            <AdminLoginGate
+              correctPassword={branding.adminPassword || 'admin123'}
+              onSuccess={() => {
+                setIsAdminAuthenticated(true);
+                try {
+                  sessionStorage.setItem('titipx_admin_auth', 'true');
+                } catch {
+                  // ignore
+                }
+                showToast('Akses Admin Portal berhasil dibuka.');
+              }}
+              onCancel={() => setActiveView('catalog')}
+            />
+          ) : (
+            <AdminDashboard
+              menu={menuItems}
+              orders={orders}
+              customers={customers}
+              branding={branding}
+              onRefreshData={loadDatabase}
+              onOpenGuide={() => setIsGuideOpen(true)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onLogout={() => {
+                setIsAdminAuthenticated(false);
+                try {
+                  sessionStorage.removeItem('titipx_admin_auth');
+                } catch {
+                  // ignore
+                }
+                setActiveView('catalog');
+                showToast('Anda telah keluar dari Admin Portal.');
+              }}
+            />
+          )
         )}
       </main>
 

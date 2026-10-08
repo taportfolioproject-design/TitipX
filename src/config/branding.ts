@@ -34,6 +34,7 @@ export interface BrandingConfig {
     }[];
   };
   appsScriptUrl: string;
+  adminPassword?: string;
 }
 
 const STORAGE_KEY = 'titipx_branding_config';

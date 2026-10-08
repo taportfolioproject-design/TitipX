@@ -117,6 +117,36 @@ export const BrandingSettingsModal: React.FC<BrandingSettingsModalProps> = ({
             </div>
           </div>
 
+          {/* Section: Keamanan & Password Admin */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-slate-900 text-white rounded-lg text-xs">🔒</span>
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Keamanan & Password Admin Portal
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Password untuk membatasi akses agar pengunjung tidak bisa mengubah data
+                </p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Password Administrator
+              </label>
+              <input
+                type="text"
+                value={formData.adminPassword || 'admin123'}
+                onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
+                placeholder="Masukkan password admin..."
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Default: <code>admin123</code>. Simpan konfigurasi untuk mengaktifkan password baru.
+              </p>
+            </div>
+          </div>
+
           {/* Section: Identitas Toko */}
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-900 border-b pb-1">Identitas Toko</h4>

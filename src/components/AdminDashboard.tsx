@@ -12,6 +12,7 @@ interface AdminDashboardProps {
   onRefreshData: () => void;
   onOpenGuide: () => void;
   onOpenSettings: () => void;
+  onLogout?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -22,6 +23,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRefreshData,
   onOpenGuide,
   onOpenSettings,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'orders' | 'catalog' | 'customers'>('orders');
   const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(orders[0] || null);
@@ -198,6 +200,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <span>🔄</span> Refresh Data
           </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="px-3.5 py-2 bg-red-600/90 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+              title="Kunci & Keluar dari Admin Portal"
+            >
+              <span>🔒</span> Keluar Admin
+            </button>
+          )}
         </div>
       </div>
 

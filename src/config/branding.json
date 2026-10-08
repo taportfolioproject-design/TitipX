@@ -45,5 +45,6 @@
       }
     ]
   },
-  "appsScriptUrl": ""
+  "appsScriptUrl": "",
+  "adminPassword": "admin123"
 }
