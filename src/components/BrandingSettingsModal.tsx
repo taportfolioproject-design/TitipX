@@ -75,9 +75,9 @@ export const BrandingSettingsModal: React.FC<BrandingSettingsModalProps> = ({
         <div className="p-6 overflow-y-auto max-h-[75vh] space-y-6">
           {/* Section: Google Apps Script Backend URL */}
           <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-700">
-                Integrasi Google Apps Script (REST API)
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                <span>⚡</span> Integrasi Google Apps Script (REST API)
               </span>
               <button
                 type="button"
@@ -88,9 +88,16 @@ export const BrandingSettingsModal: React.FC<BrandingSettingsModalProps> = ({
               </button>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Web App URL (Google Apps Script)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Web App URL (Google Apps Script)
+                </label>
+                {formData.appsScriptUrl && (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                    🔒 Terkunci
+                  </span>
+                )}
+              </div>
               <input
                 type="url"
                 value={formData.appsScriptUrl || ''}
@@ -98,21 +105,63 @@ export const BrandingSettingsModal: React.FC<BrandingSettingsModalProps> = ({
                 placeholder="https://script.google.com/macros/s/.../exec"
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono"
               />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Jika kosong, sistem otomatis memakai mode demo offline dengan penyimpanan lokal.
-              </p>
+              {formData.appsScriptUrl?.includes('/edit') && (
+                <div className="mt-1.5 p-2 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-900 flex items-center justify-between">
+                  <span>⚠️ URL berakhiran <code>/edit</code>. Ubah ke <code>/exec</code> agar dapat diakses!</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        appsScriptUrl: (formData.appsScriptUrl || '').replace(/\/edit.*$/, '/exec'),
+                      });
+                    }}
+                    className="px-2 py-0.5 bg-amber-600 text-white font-bold rounded text-[11px]"
+                  >
+                    Ubah ke /exec
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={handleTestConnection}
                 disabled={isTestingUrl || !formData.appsScriptUrl}
                 className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {isTestingUrl ? 'Menguji...' : 'Uji Koneksi API'}
+                {isTestingUrl ? 'Menguji...' : '⚡ Uji Koneksi API'}
               </button>
+              {formData.appsScriptUrl && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://titipx-five.vercel.app';
+                      const lockLink = `${origin}/?api=${encodeURIComponent(formData.appsScriptUrl)}`;
+                      navigator.clipboard.writeText(lockLink);
+                      alert('🔗 Link Share Anti-Reset berhasil disalin!\nSiapapun yang membuka link ini akan otomatis terkunci ke database Google Spreadsheet Anda.');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 shadow-xs"
+                    title="Salin Link dengan parameter auto-lock agar siapapun yang membuka langsung terkoneksi"
+                  >
+                    <span>🔗</span> Salin Link Share Anti-Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`VITE_APPS_SCRIPT_URL=${formData.appsScriptUrl}`);
+                      alert('📋 Variabel Vercel berhasil disalin!\nTambahkan di Vercel Settings > Environment Variables.');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg flex items-center gap-1 shadow-xs"
+                    title="Salin untuk Vercel Environment Variables"
+                  >
+                    <span>☁️</span> Salin Variabel Vercel
+                  </button>
+                </>
+              )}
               {testResult && (
-                <span className="text-xs font-medium text-slate-700">{testResult}</span>
+                <span className="text-xs font-medium text-slate-700 block w-full sm:w-auto mt-1 sm:mt-0">{testResult}</span>
               )}
             </div>
           </div>

@@ -7,6 +7,7 @@ interface NavbarProps {
   cartCount: number;
   wishlistCount: number;
   currency: 'IDR' | 'USD';
+  isAdminAuthenticated?: boolean;
   onToggleCurrency: () => void;
   onNavigate: (view: 'catalog' | 'cart' | 'admin') => void;
   onOpenSettings: () => void;
@@ -20,6 +21,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   cartCount,
   wishlistCount,
   currency,
+  isAdminAuthenticated = false,
   onToggleCurrency,
   onNavigate,
   onOpenSettings,
@@ -69,22 +71,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => onNavigate('cart')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all relative ${
-                activeView === 'cart'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>Keranjang</span>
-              {cartCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold">
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
               onClick={() => onNavigate('admin')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeView === 'admin'
@@ -109,16 +95,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="text-blue-600">{currency}</span>
             </button>
 
-            {/* Quick Code.gs & Guide button */}
-            <button
-              type="button"
-              onClick={onOpenGuide}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
-              title="Panduan Google Apps Script"
-            >
-              <span>📊</span>
-              <span>Backend Code.gs</span>
-            </button>
+            {/* Quick Code.gs & Guide button (Hanya tampil jika admin portal sudah login) */}
+            {isAdminAuthenticated && (
+              <button
+                type="button"
+                onClick={onOpenGuide}
+                className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                title="Panduan Google Apps Script"
+              >
+                <span>📊</span>
+                <span>Backend Code.gs</span>
+              </button>
+            )}
 
             {/* Wishlist Button */}
             <button

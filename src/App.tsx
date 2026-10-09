@@ -203,6 +203,7 @@ export default function App() {
         cartCount={cartTotalItems}
         wishlistCount={wishlistIds.length}
         currency={currency}
+        isAdminAuthenticated={isAdminAuthenticated}
         onToggleCurrency={() => setCurrency(currency === 'IDR' ? 'USD' : 'IDR')}
         onNavigate={(v) => {
           setActiveView(v);

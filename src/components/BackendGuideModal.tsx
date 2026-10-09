@@ -15,8 +15,104 @@ export const BackendGuideModal: React.FC<BackendGuideModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [tempUrl, setTempUrl] = useState(appsScriptUrl);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isLocked, setIsLocked] = useState(Boolean(appsScriptUrl && appsScriptUrl.trim().startsWith('http')));
+  const [copiedAction, setCopiedAction] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const cleanUrl = tempUrl.trim();
+  const isEndingWithExec = cleanUrl.endsWith('/exec');
+  const isEndingWithEdit = cleanUrl.endsWith('/edit') || cleanUrl.includes('/edit');
+  const isSpreadsheetUrl = cleanUrl.includes('docs.google.com/spreadsheets');
+
+  const handleFixEditToExec = () => {
+    const fixed = cleanUrl.replace(/\/edit.*$/, '/exec');
+    setTempUrl(fixed);
+  };
+
+  const handleTestConnection = async () => {
+    if (!cleanUrl) {
+      setTestResult({ success: false, message: 'Harap masukkan URL terlebih dahulu.' });
+      return;
+    }
+    setIsTesting(true);
+    setTestResult(null);
+
+    try {
+      const pingUrl = cleanUrl.includes('?') ? `${cleanUrl}&action=getAll` : `${cleanUrl}?action=getAll`;
+      const res = await fetch(pingUrl, { method: 'GET', mode: 'cors' });
+      const json = await res.json();
+
+      if (json && (json.status === 'success' || json.data)) {
+        setTestResult({
+          success: true,
+          message: '✅ Berhasil terhubung! Data menu & Google Spreadsheet aktif dan terbaca.',
+        });
+      } else {
+        setTestResult({
+          success: true,
+          message: '✅ Terhubung ke endpoint Google Apps Script (status OK).',
+        });
+      }
+    } catch {
+      // JSONP / CORS proxy check or simple fallback notice
+      setTestResult({
+        success: false,
+        message: '⚠️ Tidak dapat memverifikasi via browser (kemungkinan masalah CORS atau izin belum diatur ke "Anyone"). Pastikan saat Deploy Web App, pilih "Who has access: Anyone".',
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleSaveAndLock = () => {
+    if (!cleanUrl) {
+      alert('Masukkan URL Google Apps Script Anda terlebih dahulu.');
+      return;
+    }
+    onSaveUrl(cleanUrl);
+    setIsLocked(true);
+    try {
+      localStorage.setItem('titipx_locked_apps_script_url', cleanUrl);
+    } catch {
+      // ignore
+    }
+    alert('🔒 URL Google Apps Script BERHASIL DIKUNCI! Database kini aktif.');
+  };
+
+  const currentDomain = typeof window !== 'undefined' && window.location.origin
+    ? window.location.origin
+    : 'https://titipx-five.vercel.app';
+  
+  const vercelShareLink = cleanUrl
+    ? `https://titipx-five.vercel.app/?api=${encodeURIComponent(cleanUrl)}`
+    : '';
+
+  const dynamicShareLink = cleanUrl
+    ? `${currentDomain}/?api=${encodeURIComponent(cleanUrl)}`
+    : '';
+
+  const copyToClipboard = (text: string, actionId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedAction(actionId);
+    setTimeout(() => setCopiedAction(null), 3000);
+  };
+
+  const generateLockedJson = () => {
+    return JSON.stringify(
+      {
+        storeName: "TitipX Jastip Official",
+        tagline: "Jasa Titip Terpercaya & Cepat dari Seluruh Dunia",
+        logoUrl: "https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=120&q=80",
+        appsScriptUrl: cleanUrl,
+        adminPassword: "admin123"
+      },
+      null,
+      2
+    );
+  };
 
   const scriptCode = `/**
  * =========================================================================
@@ -288,29 +384,220 @@ function setupInitialDatabase() {
             </p>
           </div>
 
-          {/* Connect URL Form */}
-          <div className="p-4 bg-slate-100 rounded-xl space-y-2">
-            <label className="block text-xs font-bold text-slate-800">
-              Tempelkan Web App URL Google Apps Script Anda (akhiran /exec):
-            </label>
-            <div className="flex gap-2">
+          {/* Connect URL Form & Anti-Reset Locking Tools */}
+          <div className="p-4 sm:p-5 bg-gradient-to-br from-slate-50 to-blue-50/40 rounded-2xl border-2 border-blue-200/80 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🔒</span>
+                <label className="text-xs sm:text-sm font-bold text-slate-900">
+                  Tempelkan Web App URL Google Apps Script Anda (akhiran /exec):
+                </label>
+              </div>
+              <span
+                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-xs ${
+                  isLocked && cleanUrl
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isLocked && cleanUrl ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                {isLocked && cleanUrl ? 'Status: TERKUNCI & AKTIF' : 'Status: BELUM DIKUNCI'}
+              </span>
+            </div>
+
+            {/* Validation Warnings */}
+            {isEndingWithEdit && (
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div>
+                  <strong>⚠️ Perhatian:</strong> URL Anda berakhiran <code>/edit</code>. Web App Google Apps Script publik harus berakhiran <code>/exec</code>!
+                </div>
+                <button
+                  type="button"
+                  onClick={handleFixEditToExec}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px] shrink-0 transition-colors"
+                >
+                  ⚡ Perbaiki Jadi /exec
+                </button>
+              </div>
+            )}
+
+            {isSpreadsheetUrl && (
+              <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-xs text-red-900">
+                <strong>❌ Salah Link:</strong> URL ini adalah link sheet Spreadsheet (<code>docs.google.com/spreadsheets</code>), bukan URL Web App.
+                Silakan buka spreadsheet Anda &gt; menu <strong>Ekstensi &gt; Apps Script</strong> &gt; klik <strong>Terapkan (Deploy) &gt; Penerapan Baru &gt; Aplikasi Web</strong>. Salin URL yang berakhiran <code>/exec</code>.
+              </div>
+            )}
+
+            {/* URL Input Bar */}
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="url"
                 value={tempUrl}
-                onChange={(e) => setTempUrl(e.target.value)}
-                placeholder="https://script.google.com/macros/s/.../exec"
-                className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 font-mono"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  onSaveUrl(tempUrl);
-                  alert('URL Google Apps Script disimpan!');
+                onChange={(e) => {
+                  setTempUrl(e.target.value);
+                  setIsLocked(false);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700"
+                placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                className="flex-1 px-3.5 py-2.5 text-xs bg-white border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 font-mono text-slate-800 shadow-inner"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTesting || !cleanUrl}
+                  className="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl transition-colors disabled:opacity-50 shrink-0"
+                >
+                  {isTesting ? 'Menguji...' : '⚡ Uji Koneksi'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAndLock}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm shrink-0 flex items-center gap-1.5"
+                >
+                  <span>🔒</span> Kunci &amp; Simpan URL
+                </button>
+              </div>
+            </div>
+
+            {/* Test Connection Result */}
+            {testResult && (
+              <div
+                className={`p-2.5 rounded-xl text-xs font-medium border ${
+                  testResult.success
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-50 text-amber-900 border-amber-300'
+                }`}
               >
-                Simpan URL
-              </button>
+                {testResult.message}
+              </div>
+            )}
+
+            {/* Anti-Reset Locking Suite (Agar tidak reset saat dishare via Vercel) */}
+            <div className="p-4 bg-white rounded-xl border border-blue-200/80 shadow-xs space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-blue-600 font-bold text-xs uppercase tracking-wider">
+                  🛡️ Solusi Anti-Reset Saat Dibagikan via Vercel
+                </span>
+                <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                  Paling Lengkap
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Pilih salah satu metode di bawah agar saat link <code>https://titipx-five.vercel.app/</code> dibagikan ke orang lain/HP lain, data database tidak pernah reset lagi ke aset default:
+              </p>
+
+              <div className="space-y-2.5">
+                {/* Method 1: Instant Auto-Lock Share Link */}
+                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-blue-900 text-xs flex items-center gap-1">
+                      <span>🔗</span> Metode 1: Salin Link Share Anti-Reset (Paling Praktis)
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                      Instan (Tanpa Koding)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Kirim link ini ke pelanggan / teman. Begitu link dibuka di HP mereka, sistem akan <strong>otomatis mengunci</strong> database Google Spreadsheet Anda ke browser mereka selamanya!
+                  </p>
+                  {cleanUrl ? (
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                      <input
+                        type="text"
+                        readOnly
+                        value={vercelShareLink}
+                        className="flex-1 px-3 py-1.5 bg-white border border-blue-200 rounded-lg font-mono text-[11px] text-slate-800 select-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(vercelShareLink, 'share-link')}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs shrink-0 flex items-center justify-center gap-1"
+                      >
+                        {copiedAction === 'share-link' ? '✅ Tersalin!' : '📋 Salin Link Share'}
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400 italic text-[11px] block pt-1">
+                      Masukkan URL Anda di form atas terlebih dahulu untuk membuat link share terkunci.
+                    </span>
+                  )}
+                </div>
+
+                {/* Method 2: Vercel Environment Variable */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                      <span>☁️</span> Metode 2: Kunci di Environment Variable Vercel (Link Utama Bersih)
+                    </span>
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                      Link Utama Tanpa Parameter
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Membuat link utama <code>https://titipx-five.vercel.app/</code> langsung terhubung ke database untuk siapapun tanpa perlu parameter <code>?api=</code>.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                    <code className="flex-1 bg-white p-2 border border-slate-200 rounded-lg font-mono text-[11px] text-blue-700 overflow-x-auto">
+                      Key: VITE_APPS_SCRIPT_URL<br />
+                      Value: {cleanUrl || 'https://script.google.com/macros/s/.../exec'}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyToClipboard(
+                          `VITE_APPS_SCRIPT_URL=${cleanUrl || ''}`,
+                          'env-var'
+                        )
+                      }
+                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shrink-0"
+                    >
+                      {copiedAction === 'env-var' ? '✅ Tersalin!' : '📋 Salin Variabel Vercel'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 italic">
+                    Cara: Di Vercel Dashboard &gt; Project Anda &gt; <strong>Settings &gt; Environment Variables</strong> &gt; Add Variable &gt; lalu klik <strong>Redeploy</strong>.
+                  </p>
+                </div>
+
+                {/* Method 3: Lock directly in branding.json */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                      <span>📄</span> Metode 3: Kunci Langsung di File Kode branding.json
+                    </span>
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded">
+                      Hardcoded Permanen
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Salin file konfigurasi yang sudah ditanamkan URL Anda, lalu timpa file <code>src/config/branding.json</code> di GitHub Anda sebelum deploy ke Vercel:
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(generateLockedJson(), 'json-config')}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs"
+                    >
+                      {copiedAction === 'json-config' ? '✅ JSON Tersalin!' : '📋 Salin File branding.json'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const blob = new Blob([generateLockedJson()], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'branding.json';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition-colors"
+                    >
+                      💾 Unduh branding.json
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
